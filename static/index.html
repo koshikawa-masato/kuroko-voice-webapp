@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon.svg">
+    <meta name="theme-color" content="#4fc3f7">
     <title>Kuroko Interview</title>
     <style>
         * {
@@ -255,7 +258,7 @@
 
         <div class="controls hidden" id="controls-interview">
             <p class="status" id="status">Tap to speak</p>
-            <button class="btn btn-record" id="recordBtn" onclick="toggleRecording()">
+            <button class="btn btn-record" id="recordBtn" onclick="toggleRecording()" disabled style="opacity: 0.5;">
                 🎤
             </button>
             <div class="btn-group">
@@ -299,9 +302,18 @@
         // Use DOM audio element for iOS compatibility
         const audioElement = document.getElementById('audioPlayer');
 
+        function stopAudio() {
+            audioElement.pause();
+            audioElement.currentTime = 0;
+            audioElement.src = '';
+        }
+
         async function playAudio(text) {
+            const recordBtn = document.getElementById('recordBtn');
             try {
                 setStatus('Speaking...');
+                recordBtn.disabled = true;
+                recordBtn.style.opacity = '0.5';
 
                 const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`, {
                     method: 'POST'
@@ -319,6 +331,9 @@
             } catch (e) {
                 console.error('TTS error:', e);
                 setStatus('Tap to speak');
+            } finally {
+                recordBtn.disabled = false;
+                recordBtn.style.opacity = '1';
             }
         }
 
@@ -353,6 +368,9 @@
         }
 
         async function startRecording() {
+            // Stop any playing audio immediately
+            stopAudio();
+
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
@@ -435,6 +453,9 @@
         }
 
         async function endInterview() {
+            // Stop any playing audio immediately
+            stopAudio();
+
             setStatus('Calculating score...');
 
             try {
