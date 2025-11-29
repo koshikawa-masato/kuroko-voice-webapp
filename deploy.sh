@@ -8,7 +8,7 @@ REMOTE_DIR="/root/kuroko-voice-webapp"
 echo "Deploying to XServer VPS..."
 
 # Deploy Python files
-scp -i $KEY main.py rag.py requirements.txt $SERVER:$REMOTE_DIR/
+scp -i $KEY main.py rag.py encryption.py encrypt_existing_data.py requirements.txt $SERVER:$REMOTE_DIR/
 
 # Deploy static files
 scp -i $KEY static/* $SERVER:$REMOTE_DIR/static/

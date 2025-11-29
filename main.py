@@ -7,16 +7,24 @@ import os
 import json
 import base64
 import tempfile
+import hashlib
+import secrets
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Cookie, Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Import encryption module
+from encryption import (
+    encrypt_user_data, decrypt_user_data,
+    encrypt_history_data, decrypt_history_data
+)
 
 app = FastAPI(title="Kuroko Interview")
 
@@ -30,14 +38,60 @@ RESPONSE_RULES = """STRICT RULES:
 # Session storage (in-memory for simplicity)
 sessions = {}
 
-# History storage
-HISTORY_DIR = Path("/tmp/kuroko_history")
+# Data storage
+DATA_DIR = Path("/tmp/kuroko_data")
+DATA_DIR.mkdir(exist_ok=True)
+USERS_FILE = DATA_DIR / "users.json"
+USER_TOKENS = {}  # token -> username mapping
+
+# History storage (per user)
+HISTORY_DIR = DATA_DIR / "history"
 HISTORY_DIR.mkdir(exist_ok=True)
 
-def save_session_log(session_id: str, session_data: dict, score: str = None):
-    """Save session conversation to file"""
+# RAG storage (per user)
+RAG_DIR = DATA_DIR / "rag"
+RAG_DIR.mkdir(exist_ok=True)
+
+
+def load_users() -> dict:
+    """Load users from file (with decryption)"""
+    if USERS_FILE.exists():
+        with open(USERS_FILE, "r") as f:
+            encrypted_users = json.load(f)
+        # Decrypt each user's data
+        return {username: decrypt_user_data(data) for username, data in encrypted_users.items()}
+    return {}
+
+
+def save_users(users: dict):
+    """Save users to file (with encryption)"""
+    # Encrypt each user's data before saving
+    encrypted_users = {username: encrypt_user_data(data) for username, data in users.items()}
+    with open(USERS_FILE, "w") as f:
+        json.dump(encrypted_users, f, indent=2)
+
+
+def hash_password(password: str) -> str:
+    """Hash password with salt"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def get_user_from_token(token: str) -> Optional[str]:
+    """Get username from token"""
+    return USER_TOKENS.get(token)
+
+def save_session_log(session_id: str, session_data: dict, score: str = None, username: str = None):
+    """Save session conversation to file (with encryption)"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = HISTORY_DIR / f"{timestamp}_{session_id[:8]}.json"
+
+    # User-specific directory
+    if username:
+        user_history_dir = HISTORY_DIR / username
+        user_history_dir.mkdir(exist_ok=True)
+        filename = user_history_dir / f"{timestamp}_{session_id[:8]}.json"
+    else:
+        # Guest - don't save
+        return None
 
     log_data = {
         "session_id": session_id,
@@ -46,15 +100,25 @@ def save_session_log(session_id: str, session_data: dict, score: str = None):
         "score": score
     }
 
+    # Encrypt sensitive data before saving
+    encrypted_data = encrypt_history_data(log_data)
+
     with open(filename, "w", encoding="utf-8") as f:
-        json.dump(log_data, f, ensure_ascii=False, indent=2)
+        json.dump(encrypted_data, f, ensure_ascii=False, indent=2)
 
     return filename
 
-def get_history_list() -> List[dict]:
-    """Get list of past sessions"""
+def get_history_list(username: str = None) -> List[dict]:
+    """Get list of past sessions for a user"""
+    if not username:
+        return []
+
+    user_history_dir = HISTORY_DIR / username
+    if not user_history_dir.exists():
+        return []
+
     sessions_list = []
-    for file in sorted(HISTORY_DIR.glob("*.json"), reverse=True)[:20]:  # Last 20 sessions
+    for file in sorted(user_history_dir.glob("*.json"), reverse=True)[:20]:
         try:
             with open(file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -68,28 +132,39 @@ def get_history_list() -> List[dict]:
             pass
     return sessions_list
 
-def get_session_detail(filename: str) -> dict:
-    """Get detailed session data"""
-    filepath = HISTORY_DIR / filename
+def get_session_detail(filename: str, username: str = None) -> dict:
+    """Get detailed session data for a user (with decryption)"""
+    if not username:
+        return None
+
+    filepath = HISTORY_DIR / username / filename
     if not filepath.exists():
         return None
     with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
+        encrypted_data = json.load(f)
+    # Decrypt sensitive data
+    return decrypt_history_data(encrypted_data)
 
-# RAG Engine
-rag_engine = None
+# RAG Engines (per user)
+rag_engines = {}
 
-def get_rag_engine():
-    """Lazy-load RAG engine"""
-    global rag_engine
-    if rag_engine is None:
+def get_rag_engine(username: str = None):
+    """Get RAG engine for user"""
+    if not username:
+        return None
+
+    if username not in rag_engines:
         from rag import RAGEngine
-        rag_engine = RAGEngine(index_name="interview")
-        if rag_engine.load_index():
-            print(f"RAG loaded: {len(rag_engine.documents)} chunks")
+        index_path = RAG_DIR / username
+        rag_engines[username] = RAGEngine(index_name=f"user_{username}")
+        # Override index path
+        rag_engines[username].index_path = index_path
+        if rag_engines[username].load_index():
+            print(f"RAG loaded for {username}: {len(rag_engines[username].documents)} chunks")
         else:
-            print("RAG index not found")
-    return rag_engine
+            print(f"No RAG index for {username}")
+
+    return rag_engines[username]
 
 
 class Message(BaseModel):
@@ -108,6 +183,15 @@ class StartRequest(BaseModel):
 
 class ScoreRequest(BaseModel):
     session_id: str
+
+
+class AuthRequest(BaseModel):
+    username: str
+    password: str
+
+
+class SettingsUpdate(BaseModel):
+    github_username: Optional[str] = None
 
 
 def get_anthropic_client():
@@ -160,32 +244,38 @@ If answer is too short, say: Please tell me more.
 
 
 @app.post("/api/start")
-async def start_interview(req: StartRequest):
+async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)):
     """Start a new interview session"""
     try:
         client = get_anthropic_client()
+        username = get_user_from_token(token) if token else None
 
-        # Get RAG context about the candidate
-        rag = get_rag_engine()
+        # Get RAG context about the candidate (user-specific or none for guests)
         context = ""
-        if rag and rag.index is not None:
-            context = rag.get_context("technical projects AI LLM Python development experience", max_tokens=1500)
+        if username:
+            rag = get_rag_engine(username)
+            if rag and rag.index is not None:
+                context = rag.get_context("technical projects AI LLM Python development experience", max_tokens=1500)
 
         system_prompt = get_interviewer_prompt(context=context)
+
+        # Different first message based on whether we have RAG context
+        first_message = "Ask one short question about the candidate's background or projects." if context else "Ask one short general technical interview question."
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=RESPONSE_MAX_TOKENS,
             system=system_prompt,
-            messages=[{"role": "user", "content": "Ask one short question about the candidate's background or projects."}]
+            messages=[{"role": "user", "content": first_message}]
         )
 
         first_question = response.content[0].text
 
-        # Store session
+        # Store session with username
         sessions[req.session_id] = {
             "messages": [{"role": "assistant", "content": first_question}],
-            "system_prompt": system_prompt
+            "system_prompt": system_prompt,
+            "username": username
         }
 
         return {"question": first_question}
@@ -280,8 +370,9 @@ One advice: [single actionable tip for improvement]
 
         score_text = response.content[0].text
 
-        # Save session log before cleanup
-        save_session_log(req.session_id, session, score_text)
+        # Save session log before cleanup (only for logged-in users)
+        username = session.get("username")
+        save_session_log(req.session_id, session, score_text, username)
 
         # Clean up session
         del sessions[req.session_id]
@@ -347,28 +438,208 @@ async def speech_to_text(audio: UploadFile = File(...)):
 
 
 @app.get("/api/history")
-async def list_history():
+async def list_history(token: Optional[str] = Cookie(None)):
     """Get list of past interview sessions"""
-    return {"sessions": get_history_list()}
+    username = get_user_from_token(token) if token else None
+    return {"sessions": get_history_list(username)}
 
 
 @app.get("/api/history/{filename}")
-async def get_history(filename: str):
+async def get_history(filename: str, token: Optional[str] = Cookie(None)):
     """Get details of a specific session"""
-    data = get_session_detail(filename)
+    username = get_user_from_token(token) if token else None
+    data = get_session_detail(filename, username)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return data
 
 
 @app.delete("/api/history/{filename}")
-async def delete_history(filename: str):
+async def delete_history(filename: str, token: Optional[str] = Cookie(None)):
     """Delete a specific session"""
-    filepath = HISTORY_DIR / filename
+    username = get_user_from_token(token) if token else None
+    if not username:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    filepath = HISTORY_DIR / username / filename
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Session not found")
     filepath.unlink()
     return {"status": "deleted"}
+
+
+# ==================== Authentication API ====================
+
+@app.post("/api/auth/register")
+async def register(req: AuthRequest, response: FastAPIResponse):
+    """Register a new user"""
+    users = load_users()
+
+    if req.username in users:
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    users[req.username] = {
+        "password": hash_password(req.password),
+        "github_username": None,
+        "created_at": datetime.now().isoformat()
+    }
+    save_users(users)
+
+    # Auto login
+    token = secrets.token_urlsafe(32)
+    USER_TOKENS[token] = req.username
+    response.set_cookie(key="token", value=token, httponly=True, max_age=86400*30)
+
+    return {"status": "registered", "username": req.username}
+
+
+@app.post("/api/auth/login")
+async def login(req: AuthRequest, response: FastAPIResponse):
+    """Login user"""
+    users = load_users()
+
+    if req.username not in users:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if users[req.username]["password"] != hash_password(req.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token = secrets.token_urlsafe(32)
+    USER_TOKENS[token] = req.username
+    response.set_cookie(key="token", value=token, httponly=True, max_age=86400*30)
+
+    return {"status": "logged_in", "username": req.username}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: FastAPIResponse, token: Optional[str] = Cookie(None)):
+    """Logout user"""
+    if token and token in USER_TOKENS:
+        del USER_TOKENS[token]
+    response.delete_cookie(key="token")
+    return {"status": "logged_out"}
+
+
+@app.get("/api/auth/me")
+async def get_current_user(token: Optional[str] = Cookie(None)):
+    """Get current user info"""
+    if not token:
+        return {"logged_in": False}
+
+    username = get_user_from_token(token)
+    if not username:
+        return {"logged_in": False}
+
+    users = load_users()
+    user_data = users.get(username, {})
+
+    return {
+        "logged_in": True,
+        "username": username,
+        "github_username": user_data.get("github_username"),
+        "has_rag": (RAG_DIR / username / "index.faiss").exists()
+    }
+
+
+# ==================== Settings API ====================
+
+@app.post("/api/settings")
+async def update_settings(settings: SettingsUpdate, token: Optional[str] = Cookie(None)):
+    """Update user settings"""
+    username = get_user_from_token(token) if token else None
+    if not username:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    users = load_users()
+    if username not in users:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if settings.github_username is not None:
+        users[username]["github_username"] = settings.github_username
+
+    save_users(users)
+    return {"status": "updated"}
+
+
+@app.get("/api/settings/generate-rag")
+async def generate_rag_stream(token: Optional[str] = Cookie(None)):
+    """Generate RAG index from user's GitHub repos with progress streaming"""
+    import subprocess
+    import shutil
+    import urllib.request
+    from fastapi.responses import StreamingResponse
+
+    username = get_user_from_token(token) if token else None
+    if not username:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    users = load_users()
+    github_username = users.get(username, {}).get("github_username")
+    if not github_username:
+        raise HTTPException(status_code=400, detail="GitHub username not set")
+
+    async def generate():
+        try:
+            yield f"data: {json.dumps({'step': 'Fetching repo list...', 'progress': 5})}\n\n"
+
+            # Create temp dir for cloning
+            temp_dir = Path(tempfile.mkdtemp())
+
+            # Get public repos via GitHub API
+            api_url = f"https://api.github.com/users/{github_username}/repos?type=public&per_page=20"
+            req = urllib.request.Request(api_url, headers={"User-Agent": "Kuroko-Interview"})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                repos = json.loads(response.read().decode())
+
+            if not repos:
+                yield f"data: {json.dumps({'error': 'No public repos found'})}\n\n"
+                return
+
+            total_repos = len(repos)
+            yield f"data: {json.dumps({'step': f'Found {total_repos} repos', 'progress': 10})}\n\n"
+
+            # Clone repos using git
+            for i, repo in enumerate(repos):
+                repo_name = repo["name"]
+                clone_url = repo["clone_url"]
+                progress = 10 + int((i / total_repos) * 50)
+                yield f"data: {json.dumps({'step': f'Cloning {repo_name}...', 'progress': progress})}\n\n"
+
+                subprocess.run(
+                    ["/usr/bin/git", "clone", "--depth", "1", clone_url],
+                    cwd=temp_dir, capture_output=True
+                )
+
+            yield f"data: {json.dumps({'step': 'Building RAG index...', 'progress': 65})}\n\n"
+
+            # Generate RAG index
+            from rag import RAGEngine
+            user_rag_dir = RAG_DIR / username
+            user_rag_dir.mkdir(exist_ok=True)
+
+            rag = RAGEngine(index_name=f"user_{username}")
+            rag.index_path = user_rag_dir
+
+            yield f"data: {json.dumps({'step': 'Indexing .md files...', 'progress': 75})}\n\n"
+
+            rag.index_directory(str(temp_dir), extensions=[".md"])
+
+            yield f"data: {json.dumps({'step': 'Saving index...', 'progress': 90})}\n\n"
+
+            # Cleanup temp dir
+            shutil.rmtree(temp_dir)
+
+            # Update cache
+            rag_engines[username] = rag
+
+            yield f"data: {json.dumps({'step': 'Done!', 'progress': 100, 'chunks': len(rag.documents)})}\n\n"
+
+        except Exception as e:
+            import traceback
+            print(f"RAG generation error: {traceback.format_exc()}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # Serve static files

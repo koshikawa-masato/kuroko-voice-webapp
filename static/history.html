@@ -185,10 +185,19 @@
     <script>
         async function loadHistory() {
             try {
-                const res = await fetch('/api/history');
-                const data = await res.json();
+                // Check if user is logged in
+                const authRes = await fetch('/api/auth/me');
+                const authData = await authRes.json();
 
                 const listView = document.getElementById('list-view');
+
+                if (!authData.logged_in) {
+                    listView.innerHTML = '<div class="empty">Login required to view history.<br><br><a href="/static/settings.html" style="color: #4fc3f7;">Go to Settings to login</a></div>';
+                    return;
+                }
+
+                const res = await fetch('/api/history');
+                const data = await res.json();
 
                 if (data.sessions.length === 0) {
                     listView.innerHTML = '<div class="empty">No interview history yet.<br>Complete an interview to see it here.</div>';

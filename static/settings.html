@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon.svg">
+    <meta name="theme-color" content="#4fc3f7">
+    <title>Settings - Kuroko Interview</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 0;
+            position: relative;
+        }
+
+        .header-btn {
+            position: absolute;
+            top: 20px;
+            background: transparent;
+            border: 1px solid #4fc3f7;
+            color: #4fc3f7;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .header-btn:active {
+            background: #4fc3f7;
+            color: #1a1a2e;
+        }
+
+        .header-btn.left {
+            left: 0;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #4fc3f7;
+        }
+
+        header p {
+            font-size: 0.9rem;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .section {
+            background: #2d3748;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .section h2 {
+            font-size: 1.1rem;
+            color: #4fc3f7;
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.9rem;
+            color: #9ca3af;
+            margin-bottom: 5px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #4b5563;
+            border-radius: 10px;
+            background: #1f2937;
+            color: #fff;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #4fc3f7;
+        }
+
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background: #4fc3f7;
+            color: #1a1a2e;
+        }
+
+        .btn-primary:hover {
+            background: #29b6f6;
+        }
+
+        .btn-primary:disabled {
+            background: #4b5563;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #374151;
+            color: #fff;
+            margin-top: 10px;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .status-message {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        .status-message.success {
+            background: #10b98120;
+            color: #10b981;
+        }
+
+        .status-message.error {
+            background: #ef444420;
+            color: #ef4444;
+        }
+
+        .status-message.info {
+            background: #3b82f620;
+            color: #3b82f6;
+        }
+
+        .user-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #1f2937;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .user-info .username {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .user-info .badge {
+            background: #10b981;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .rag-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #1f2937;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+        }
+
+        .rag-status .indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .rag-status .indicator.active {
+            background: #10b981;
+        }
+
+        .rag-status .indicator.inactive {
+            background: #6b7280;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #4fc3f7;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .progress-container {
+            margin-top: 15px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #1f2937;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4fc3f7, #10b981);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            font-size: 0.85rem;
+            color: #9ca3af;
+            text-align: center;
+        }
+
+        @supports (padding-top: env(safe-area-inset-top)) {
+            .container {
+                padding-top: calc(20px + env(safe-area-inset-top));
+                padding-bottom: calc(20px + env(safe-area-inset-bottom));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="/" class="header-btn left">Back</a>
+            <h1>Settings</h1>
+            <p>Account & RAG Configuration</p>
+        </header>
+
+        <!-- Guest View (Login/Register) -->
+        <div id="guest-view">
+            <div class="section">
+                <h2>Login / Register</h2>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="auth-username" placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="auth-password" placeholder="Enter password">
+                </div>
+                <button class="btn btn-primary" onclick="login()">Login</button>
+                <button class="btn btn-secondary" onclick="register()">Register New Account</button>
+                <div id="auth-status" class="status-message hidden"></div>
+            </div>
+
+            <div class="section">
+                <h2>Guest Mode</h2>
+                <p style="color: #9ca3af; font-size: 0.9rem; margin-bottom: 15px;">
+                    You can use the app without logging in, but your history won't be saved and you won't have personalized questions.
+                </p>
+                <a href="/" class="btn btn-secondary" style="display: block; text-align: center; text-decoration: none;">
+                    Continue as Guest
+                </a>
+            </div>
+        </div>
+
+        <!-- Logged In View -->
+        <div id="user-view" class="hidden">
+            <div class="section">
+                <h2>Account</h2>
+                <div class="user-info">
+                    <span class="username" id="display-username">-</span>
+                    <span class="badge">Logged In</span>
+                </div>
+                <button class="btn btn-secondary" onclick="logout()">Logout</button>
+            </div>
+
+            <div class="section">
+                <h2>RAG Index</h2>
+                <div class="rag-status">
+                    <div class="indicator" id="rag-indicator"></div>
+                    <span id="rag-status-text">Checking...</span>
+                </div>
+                <div class="form-group">
+                    <label>GitHub Username</label>
+                    <input type="text" id="github-username" placeholder="e.g., koshikawa-masato">
+                </div>
+                <button class="btn btn-primary" id="generate-rag-btn" onclick="generateRag()">
+                    Generate RAG from Public Repos
+                </button>
+                <div id="progress-container" class="progress-container hidden">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-text" id="progress-text">Starting...</div>
+                </div>
+                <div id="rag-message" class="status-message hidden"></div>
+                <p style="color: #6b7280; font-size: 0.8rem; margin-top: 10px;">
+                    This will index .md files from your public GitHub repositories to personalize interview questions.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/auth/me');
+                const data = await res.json();
+
+                if (data.logged_in) {
+                    currentUser = data;
+                    showUserView();
+                } else {
+                    showGuestView();
+                }
+            } catch (e) {
+                console.error('Auth check failed:', e);
+                showGuestView();
+            }
+        }
+
+        function showGuestView() {
+            document.getElementById('guest-view').classList.remove('hidden');
+            document.getElementById('user-view').classList.add('hidden');
+        }
+
+        function showUserView() {
+            document.getElementById('guest-view').classList.add('hidden');
+            document.getElementById('user-view').classList.remove('hidden');
+
+            document.getElementById('display-username').textContent = currentUser.username;
+            document.getElementById('github-username').value = currentUser.github_username || '';
+
+            const indicator = document.getElementById('rag-indicator');
+            const statusText = document.getElementById('rag-status-text');
+
+            if (currentUser.has_rag) {
+                indicator.classList.add('active');
+                indicator.classList.remove('inactive');
+                statusText.textContent = 'RAG index active';
+            } else {
+                indicator.classList.remove('active');
+                indicator.classList.add('inactive');
+                statusText.textContent = 'No RAG index';
+            }
+        }
+
+        function showAuthStatus(message, type) {
+            const el = document.getElementById('auth-status');
+            el.textContent = message;
+            el.className = `status-message ${type}`;
+            el.classList.remove('hidden');
+        }
+
+        function showRagMessage(message, type) {
+            const el = document.getElementById('rag-message');
+            el.textContent = message;
+            el.className = `status-message ${type}`;
+            el.classList.remove('hidden');
+        }
+
+        async function login() {
+            const username = document.getElementById('auth-username').value.trim();
+            const password = document.getElementById('auth-password').value;
+
+            if (!username || !password) {
+                showAuthStatus('Please enter username and password', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    showAuthStatus('Login successful!', 'success');
+                    setTimeout(() => checkAuth(), 500);
+                } else {
+                    showAuthStatus(data.detail || 'Login failed', 'error');
+                }
+            } catch (e) {
+                showAuthStatus('Connection error', 'error');
+            }
+        }
+
+        async function register() {
+            const username = document.getElementById('auth-username').value.trim();
+            const password = document.getElementById('auth-password').value;
+
+            if (!username || !password) {
+                showAuthStatus('Please enter username and password', 'error');
+                return;
+            }
+
+            if (password.length < 4) {
+                showAuthStatus('Password must be at least 4 characters', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    showAuthStatus('Account created! Logging in...', 'success');
+                    setTimeout(() => checkAuth(), 500);
+                } else {
+                    showAuthStatus(data.detail || 'Registration failed', 'error');
+                }
+            } catch (e) {
+                showAuthStatus('Connection error', 'error');
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                currentUser = null;
+                showGuestView();
+            } catch (e) {
+                console.error('Logout failed:', e);
+            }
+        }
+
+        async function generateRag() {
+            const githubUsername = document.getElementById('github-username').value.trim();
+
+            if (!githubUsername) {
+                showRagMessage('Please enter your GitHub username', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('generate-rag-btn');
+            const progressContainer = document.getElementById('progress-container');
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            progressContainer.classList.remove('hidden');
+            progressFill.style.width = '0%';
+            document.getElementById('rag-message').classList.add('hidden');
+
+            try {
+                // First save the GitHub username
+                await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ github_username: githubUsername })
+                });
+
+                // Then generate RAG with SSE progress
+                const eventSource = new EventSource('/api/settings/generate-rag');
+
+                eventSource.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.error) {
+                        eventSource.close();
+                        showRagMessage(data.error, 'error');
+                        btn.disabled = false;
+                        btn.textContent = 'Generate RAG from Public Repos';
+                        progressContainer.classList.add('hidden');
+                        return;
+                    }
+
+                    if (data.progress !== undefined) {
+                        progressFill.style.width = data.progress + '%';
+                        progressText.textContent = data.step;
+                    }
+
+                    if (data.chunks !== undefined) {
+                        // Done!
+                        eventSource.close();
+                        showRagMessage(`RAG generated successfully! ${data.chunks} chunks indexed.`, 'success');
+                        document.getElementById('rag-indicator').classList.add('active');
+                        document.getElementById('rag-indicator').classList.remove('inactive');
+                        document.getElementById('rag-status-text').textContent = 'RAG index active';
+                        btn.disabled = false;
+                        btn.textContent = 'Generate RAG from Public Repos';
+                        setTimeout(() => progressContainer.classList.add('hidden'), 1000);
+                    }
+                };
+
+                eventSource.onerror = () => {
+                    eventSource.close();
+                    showRagMessage('Connection error', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Generate RAG from Public Repos';
+                    progressContainer.classList.add('hidden');
+                };
+
+            } catch (e) {
+                showRagMessage('Connection error: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Generate RAG from Public Repos';
+                progressContainer.classList.add('hidden');
+            }
+        }
+
+        // Init
+        checkAuth();
+    </script>
+</body>
+</html>

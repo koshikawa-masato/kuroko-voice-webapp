@@ -242,9 +242,9 @@
     <div class="container">
         <header>
             <a href="/static/history.html" class="header-btn left" id="historyBtn">History</a>
-            <button class="header-btn right" onclick="location.reload()">Rerun</button>
+            <a href="/static/settings.html" class="header-btn right" id="settingsBtn">Login</a>
             <h1>Kuroko Interview</h1>
-            <p>English Interview Practice</p>
+            <p id="user-status">English Interview Practice</p>
         </header>
 
         <div class="chat-container" id="chat"></div>
@@ -480,6 +480,29 @@
             // Generate new session ID
             window.location.reload();
         }
+
+        // Check user status on load
+        async function checkUserStatus() {
+            try {
+                const res = await fetch('/api/auth/me');
+                const data = await res.json();
+                const statusEl = document.getElementById('user-status');
+                const settingsBtn = document.getElementById('settingsBtn');
+                if (data.logged_in) {
+                    statusEl.textContent = `Logged in as ${data.username}`;
+                    statusEl.style.color = '#10b981';
+                    settingsBtn.textContent = 'Settings';
+                } else {
+                    statusEl.textContent = 'Guest Mode (history not saved)';
+                    statusEl.style.color = '#f59e0b';
+                    settingsBtn.textContent = 'Login';
+                }
+            } catch (e) {
+                console.error('Status check failed:', e);
+            }
+        }
+
+        checkUserStatus();
     </script>
 </body>
 </html>
