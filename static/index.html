@@ -215,6 +215,60 @@
             display: none !important;
         }
 
+        /* Level selection */
+        .level-select {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .level-option {
+            background: #2d3748;
+            border: 2px solid #4a5568;
+            border-radius: 12px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .level-option:hover {
+            border-color: #4fc3f7;
+        }
+
+        .level-option.selected {
+            border-color: #4fc3f7;
+            background: #1e3a5f;
+        }
+
+        .level-option .level-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+
+        .level-option .level-badge {
+            font-size: 1.2rem;
+        }
+
+        .level-option .level-title {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .level-option .level-exp {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin-left: auto;
+        }
+
+        .level-option .level-desc {
+            font-size: 0.8rem;
+            color: #9ca3af;
+            line-height: 1.4;
+        }
+
         /* Loading spinner */
         .spinner {
             width: 24px;
@@ -251,6 +305,32 @@
         <audio id="audioPlayer" playsinline></audio>
 
         <div class="controls" id="controls-start">
+            <div class="level-select">
+                <div class="level-option selected" data-level="L4" onclick="selectLevel(this)">
+                    <div class="level-header">
+                        <span class="level-badge">🟢</span>
+                        <span class="level-title">L4 Mid-Level</span>
+                        <span class="level-exp">2-5 years</span>
+                    </div>
+                    <div class="level-desc">Feature ownership, basic system design, autonomous work</div>
+                </div>
+                <div class="level-option" data-level="L5" onclick="selectLevel(this)">
+                    <div class="level-header">
+                        <span class="level-badge">🟡</span>
+                        <span class="level-title">L5 Senior</span>
+                        <span class="level-exp">5-8 years</span>
+                    </div>
+                    <div class="level-desc">Technical leadership, system design, mentoring junior engineers</div>
+                </div>
+                <div class="level-option" data-level="L6" onclick="selectLevel(this)">
+                    <div class="level-header">
+                        <span class="level-badge">🔴</span>
+                        <span class="level-title">L6+ Staff</span>
+                        <span class="level-exp">8+ years</span>
+                    </div>
+                    <div class="level-desc">Architecture decisions, cross-team influence, org-wide impact</div>
+                </div>
+            </div>
             <button class="btn btn-primary" onclick="startInterview()">
                 Start Interview
             </button>
@@ -280,6 +360,13 @@
         let isRecording = false;
         let mediaRecorder = null;
         let audioChunks = [];
+        let selectedLevel = 'L4';
+
+        function selectLevel(element) {
+            document.querySelectorAll('.level-option').forEach(opt => opt.classList.remove('selected'));
+            element.classList.add('selected');
+            selectedLevel = element.dataset.level;
+        }
 
         function addMessage(text, type) {
             const chat = document.getElementById('chat');
@@ -349,7 +436,7 @@
                 const response = await fetch('/api/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId })
+                    body: JSON.stringify({ session_id: sessionId, level: selectedLevel })
                 });
                 const data = await response.json();
                 addMessage(data.question, 'kuroko');

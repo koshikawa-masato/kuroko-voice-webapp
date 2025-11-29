@@ -179,6 +179,7 @@ class ChatRequest(BaseModel):
 
 class StartRequest(BaseModel):
     session_id: str
+    level: str = "L4"  # L4, L5, L6
 
 
 class ScoreRequest(BaseModel):
@@ -209,7 +210,52 @@ def get_elevenlabs_client():
     return ElevenLabs()
 
 
-def get_interviewer_prompt(level: str = "intermediate", context: str = "") -> str:
+def get_level_expectations(level: str) -> dict:
+    """Get interview expectations based on FAANG engineering level."""
+    levels = {
+        "L4": {
+            "title": "Mid-Level Engineer (L4/SDE II)",
+            "years": "2-5 years",
+            "focus": [
+                "Feature ownership and autonomous work",
+                "Basic system design (polling vs websockets, caching basics)",
+                "Problem-solving and debugging skills",
+                "Code quality and testing practices"
+            ],
+            "question_style": "Focus on specific technical implementations, debugging experiences, and feature delivery.",
+            "behavioral_focus": "Teamwork, handling technical disagreements, learning from mistakes"
+        },
+        "L5": {
+            "title": "Senior Engineer (L5/SDE III)",
+            "years": "5-8 years",
+            "focus": [
+                "Technical leadership and mentoring",
+                "System design for scalability and reliability",
+                "Cross-functional collaboration",
+                "Driving technical decisions"
+            ],
+            "question_style": "Emphasize leadership, system design trade-offs, and influencing without authority.",
+            "behavioral_focus": "Leading projects, mentoring others, driving technical direction, handling ambiguity"
+        },
+        "L6": {
+            "title": "Staff Engineer (L6/Principal)",
+            "years": "8+ years",
+            "focus": [
+                "Architecture decisions with org-wide impact",
+                "Cross-team technical strategy",
+                "Complex distributed systems",
+                "Building consensus across stakeholders"
+            ],
+            "question_style": "Deep architecture discussions, organizational influence, long-term technical vision.",
+            "behavioral_focus": "Org-wide impact, strategic planning, building technical culture, executive communication"
+        }
+    }
+    return levels.get(level, levels["L4"])
+
+
+def get_interviewer_prompt(level: str = "L4", context: str = "") -> str:
+    level_info = get_level_expectations(level)
+
     context_section = ""
     if context:
         context_section = f"""
@@ -219,9 +265,20 @@ CANDIDATE'S BACKGROUND (from their projects):
 Use this background to ask specific questions about their actual projects and experience.
 """
 
-    return f"""You are Kuroko, a technical interviewer at a global tech company.
-User level: {level.upper()}
+    focus_points = "\n".join(f"  - {f}" for f in level_info["focus"])
+
+    return f"""You are Kuroko, a technical interviewer at a FAANG company (Google, Amazon, Meta level).
+You are interviewing for: {level_info["title"]} ({level_info["years"]} experience)
 {context_section}
+LEVEL-SPECIFIC EXPECTATIONS:
+{focus_points}
+
+QUESTION STYLE FOR THIS LEVEL:
+{level_info["question_style"]}
+
+BEHAVIORAL FOCUS:
+{level_info["behavioral_focus"]}
+
 FORMAT RULES:
 - 2 sentences max
 - No markdown, no asterisks, no bold
@@ -230,6 +287,8 @@ FORMAT RULES:
 INTERVIEW RULES:
 - Listen carefully to their answer
 - Ask follow-up questions that dig deeper into WHAT THEY JUST SAID
+- Match your expectations to the {level} level - don't ask L6 questions to L4 candidates
+- For {level}, focus on: {level_info["question_style"]}
 - Reference their actual projects when relevant
 - Examples of good follow-ups:
   - They mention Python -> Ask what libraries or frameworks
@@ -250,6 +309,10 @@ async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)
         client = get_anthropic_client()
         username = get_user_from_token(token) if token else None
 
+        # Validate level
+        level = req.level if req.level in ["L4", "L5", "L6"] else "L4"
+        level_info = get_level_expectations(level)
+
         # Get RAG context about the candidate (user-specific or none for guests)
         context = ""
         if username:
@@ -257,10 +320,13 @@ async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)
             if rag and rag.index is not None:
                 context = rag.get_context("technical projects AI LLM Python development experience", max_tokens=1500)
 
-        system_prompt = get_interviewer_prompt(context=context)
+        system_prompt = get_interviewer_prompt(level=level, context=context)
 
-        # Different first message based on whether we have RAG context
-        first_message = "Ask one short question about the candidate's background or projects." if context else "Ask one short general technical interview question."
+        # Different first message based on level and whether we have RAG context
+        if context:
+            first_message = f"Ask one short question about the candidate's background or projects, appropriate for a {level_info['title']} interview."
+        else:
+            first_message = f"Ask one short technical interview question appropriate for a {level_info['title']} candidate."
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -271,14 +337,15 @@ async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)
 
         first_question = response.content[0].text
 
-        # Store session with username
+        # Store session with username and level
         sessions[req.session_id] = {
             "messages": [{"role": "assistant", "content": first_question}],
             "system_prompt": system_prompt,
-            "username": username
+            "username": username,
+            "level": level
         }
 
-        return {"question": first_question}
+        return {"question": first_question, "level": level}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -341,6 +408,8 @@ async def score_interview(req: ScoreRequest):
 
     session = sessions[req.session_id]
     messages = session["messages"]
+    level = session.get("level", "L4")
+    level_info = get_level_expectations(level)
 
     if not messages:
         return {"score": "No conversation to score."}
@@ -354,26 +423,30 @@ async def score_interview(req: ScoreRequest):
     try:
         client = get_anthropic_client()
 
-        scoring_prompt = """You are an interview coach evaluating a mock technical interview.
+        scoring_prompt = f"""You are an interview coach evaluating a mock technical interview.
+The candidate was interviewing for: {level_info['title']} ({level_info['years']} experience)
 
-Score the candidate on these 5 criteria (1-5 scale):
+Score the candidate on these 5 criteria (1-5 scale), evaluating against {level} level expectations:
 
 1. Clarity - How clearly did they explain their ideas?
-2. Technical Depth - Did they show technical understanding?
-3. Communication - Did they answer questions directly?
+2. Technical Depth - Did they demonstrate {level}-appropriate technical understanding?
+3. Communication - Did they answer questions directly and professionally?
 4. Fluency - How smoothly did they speak in English?
-5. Confidence - Did they seem confident in their answers?
+5. {"Leadership & Influence" if level in ["L5", "L6"] else "Problem Solving"} - {"Did they show leadership qualities and ability to influence?" if level in ["L5", "L6"] else "Did they show good problem-solving approach?"}
 
 FORMAT (plain text, no markdown):
+Interview Level: {level} ({level_info['title']})
+
 Clarity: X/5 - [one short comment]
 Technical Depth: X/5 - [one short comment]
 Communication: X/5 - [one short comment]
 Fluency: X/5 - [one short comment]
-Confidence: X/5 - [one short comment]
+{"Leadership: X/5" if level in ["L5", "L6"] else "Problem Solving: X/5"} - [one short comment]
 
 Total: XX/25
 
-One advice: [single actionable tip for improvement]
+{"Ready for " + level + "? [Yes/Almost/Need more practice]" if level != "L4" else ""}
+One advice: [single actionable tip for improvement targeting {level} level interviews]
 """
 
         response = client.messages.create(
