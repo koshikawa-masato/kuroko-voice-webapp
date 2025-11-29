@@ -286,6 +286,11 @@ async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)
 
 GUEST_TURN_LIMIT = 5  # Guest users limited to 5 turns
 
+# RAG generation limits
+RAG_MAX_REPOS = 10  # Maximum number of repositories to clone
+RAG_MAX_DOCUMENTS = 5000  # Maximum total document chunks
+RAG_MAX_PER_REPO = 2000  # Maximum chunks per repository
+
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
@@ -595,20 +600,27 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
             # Create temp dir for cloning
             temp_dir = Path(tempfile.mkdtemp())
 
-            # Get public repos via GitHub API
-            api_url = f"https://api.github.com/users/{github_username}/repos?type=public&per_page=20"
+            # Get public repos via GitHub API (fetch more to sort by size)
+            api_url = f"https://api.github.com/users/{github_username}/repos?type=public&per_page=100"
             req = urllib.request.Request(api_url, headers={"User-Agent": "Kuroko-Interview"})
             with urllib.request.urlopen(req, timeout=30) as response:
-                repos = json.loads(response.read().decode())
+                all_repos = json.loads(response.read().decode())
 
-            if not repos:
+            if not all_repos:
                 yield f"data: {json.dumps({'error': 'No public repos found'})}\n\n"
                 return
 
-            total_repos = len(repos)
-            yield f"data: {json.dumps({'step': f'Found {total_repos} repos', 'progress': 10})}\n\n"
+            # Sort by size (smaller first) and limit
+            all_repos.sort(key=lambda r: r.get('size', 0))
+            repos = all_repos[:RAG_MAX_REPOS]
+
+            if len(all_repos) > RAG_MAX_REPOS:
+                yield f"data: {json.dumps({'step': f'Found {len(all_repos)} repos, limiting to {RAG_MAX_REPOS}', 'progress': 10})}\n\n"
+            else:
+                yield f"data: {json.dumps({'step': f'Found {len(repos)} repos', 'progress': 10})}\n\n"
 
             # Clone repos using git
+            total_repos = len(repos)
             for i, repo in enumerate(repos):
                 repo_name = repo["name"]
                 clone_url = repo["clone_url"]
@@ -622,7 +634,7 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
 
             yield f"data: {json.dumps({'step': 'Building RAG index...', 'progress': 65})}\n\n"
 
-            # Generate RAG index
+            # Generate RAG index with limits
             from rag import RAGEngine
             user_rag_dir = RAG_DIR / username
             user_rag_dir.mkdir(exist_ok=True)
@@ -632,7 +644,13 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
 
             yield f"data: {json.dumps({'step': 'Indexing .md files...', 'progress': 75})}\n\n"
 
-            rag.index_directory(str(temp_dir), extensions=[".md"])
+            # Index with document limits
+            rag.index_directory(
+                str(temp_dir),
+                extensions=[".md"],
+                max_documents=RAG_MAX_DOCUMENTS,
+                max_per_source=RAG_MAX_PER_REPO
+            )
 
             yield f"data: {json.dumps({'step': 'Saving index...', 'progress': 90})}\n\n"
 
@@ -642,7 +660,11 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
             # Update cache
             rag_engines[username] = rag
 
-            yield f"data: {json.dumps({'step': 'Done!', 'progress': 100, 'chunks': len(rag.documents)})}\n\n"
+            doc_count = len(rag.documents)
+            msg = f'Done! {doc_count} chunks indexed'
+            if doc_count >= RAG_MAX_DOCUMENTS:
+                msg += f' (limit: {RAG_MAX_DOCUMENTS})'
+            yield f"data: {json.dumps({'step': msg, 'progress': 100, 'chunks': doc_count})}\n\n"
 
         except Exception as e:
             import traceback

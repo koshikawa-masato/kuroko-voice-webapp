@@ -93,18 +93,22 @@ class RAGEngine:
                 self._available = False
         return self._available
 
-    def index_directory(self, directory: str, extensions: List[str] = None):
+    def index_directory(self, directory: str, extensions: List[str] = None,
+                        max_documents: int = None, max_per_source: int = None):
         """Index all files in a directory
 
         Args:
             directory: Path to directory
             extensions: File extensions to include (default: .md only for efficiency)
+            max_documents: Maximum total document chunks (None = unlimited)
+            max_per_source: Maximum chunks per source/repo directory (None = unlimited)
         """
         if not self.available:
             return
 
         import faiss
         import numpy as np
+        import re
 
         # Default to .md only (README, docs, etc.) for efficiency
         if extensions is None:
@@ -112,19 +116,37 @@ class RAGEngine:
 
         print(f"Indexing {directory}...")
         print(f"Extensions: {extensions}")
+        if max_documents:
+            print(f"Max documents: {max_documents}")
+        if max_per_source:
+            print(f"Max per source: {max_per_source}")
 
         self.documents = []
         all_chunks = []  # Collect all chunks first
+        source_counts = {}  # Track chunks per source (repo)
 
         # Walk directory and collect chunks
         dir_path = Path(directory)
         for file_path in dir_path.rglob('*'):
+            # Check total document limit
+            if max_documents and len(all_chunks) >= max_documents:
+                print(f"  Reached max documents limit ({max_documents})")
+                break
+
             if file_path.is_file() and file_path.suffix in extensions:
                 # Skip hidden and common ignore patterns
                 if any(part.startswith('.') for part in file_path.parts):
                     continue
                 if any(part in ['node_modules', 'venv', '__pycache__', 'dist', 'build']
                        for part in file_path.parts):
+                    continue
+
+                # Extract source (repo name) from path
+                relative_path = str(file_path.relative_to(dir_path))
+                source_name = relative_path.split('/')[0] if '/' in relative_path else 'root'
+
+                # Check per-source limit
+                if max_per_source and source_counts.get(source_name, 0) >= max_per_source:
                     continue
 
                 try:
@@ -135,18 +157,31 @@ class RAGEngine:
                     # Chunk the content
                     chunks = self._chunk_text(content)
 
-                    for i, chunk in enumerate(chunks):
+                    # Apply limits
+                    chunks_to_add = chunks
+                    if max_per_source:
+                        remaining = max_per_source - source_counts.get(source_name, 0)
+                        chunks_to_add = chunks[:remaining]
+                    if max_documents:
+                        remaining = max_documents - len(all_chunks)
+                        chunks_to_add = chunks_to_add[:remaining]
+
+                    for i, chunk in enumerate(chunks_to_add):
                         # Create document
                         doc = Document(
                             content=chunk,
                             source=str(file_path.relative_to(dir_path)),
                             chunk_id=i,
-                            metadata={'full_path': str(file_path)}
+                            metadata={'full_path': str(file_path), 'repo': source_name}
                         )
                         self.documents.append(doc)
                         all_chunks.append(chunk)
+                        source_counts[source_name] = source_counts.get(source_name, 0) + 1
 
-                    print(f"  Found: {file_path.name} ({len(chunks)} chunks)")
+                    if len(chunks_to_add) < len(chunks):
+                        print(f"  Found: {file_path.name} ({len(chunks_to_add)}/{len(chunks)} chunks, limited)")
+                    else:
+                        print(f"  Found: {file_path.name} ({len(chunks)} chunks)")
 
                 except Exception as e:
                     print(f"  Skip {file_path.name}: {e}")
