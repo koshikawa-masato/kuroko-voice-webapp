@@ -284,6 +284,9 @@ async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+GUEST_TURN_LIMIT = 5  # Guest users limited to 5 turns
+
+
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
     """Process user answer and get next question"""
@@ -295,6 +298,13 @@ async def chat(req: ChatRequest):
     # Check for stop command
     if any(word in req.text.lower() for word in ['stop', 'quit', 'exit', 'end', 'bye']):
         return {"action": "stop"}
+
+    # Check guest turn limit
+    if not session.get("username"):
+        # Count user messages (turns)
+        user_turns = len([m for m in session["messages"] if m["role"] == "user"])
+        if user_turns >= GUEST_TURN_LIMIT:
+            return {"action": "guest_limit", "message": "Guest mode is limited to 5 turns. Please login to continue."}
 
     try:
         client = get_anthropic_client()

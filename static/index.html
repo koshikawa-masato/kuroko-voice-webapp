@@ -443,6 +443,15 @@
                     return;
                 }
 
+                if (chatData.action === 'guest_limit') {
+                    addMessage(chatData.message, 'system');
+                    addMessage('Please login to continue practicing. Your progress will be saved!', 'system');
+                    setStatus('Guest limit reached');
+                    // Show end controls with login prompt
+                    showControls('controls-end');
+                    return;
+                }
+
                 addMessage(chatData.response, 'kuroko');
                 await playAudio(chatData.response);
 
