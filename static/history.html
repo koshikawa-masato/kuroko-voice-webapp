@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Interview History</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 0;
+            position: relative;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            color: #4fc3f7;
+        }
+
+        .back-btn {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            background: transparent;
+            border: 1px solid #4fc3f7;
+            color: #4fc3f7;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .session-list {
+            margin-top: 20px;
+        }
+
+        .session-item-wrapper {
+            position: relative;
+            margin-bottom: 10px;
+            overflow: hidden;
+            border-radius: 10px;
+        }
+
+        .session-item {
+            background: #2d3748;
+            padding: 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        .session-item:hover {
+            background: #374151;
+        }
+
+        .session-item.swiping {
+            transition: none;
+        }
+
+        .delete-bg {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 80px;
+            background: #ef4444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            border-radius: 10px;
+        }
+
+        .session-date {
+            color: #4fc3f7;
+            font-size: 0.9rem;
+        }
+
+        .session-info {
+            color: #9ca3af;
+            font-size: 0.8rem;
+            margin-top: 5px;
+        }
+
+        .session-detail {
+            display: none;
+        }
+
+        .session-detail.active {
+            display: block;
+        }
+
+        .message {
+            padding: 12px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            max-width: 90%;
+        }
+
+        .message.assistant {
+            background: #2d3748;
+            align-self: flex-start;
+        }
+
+        .message.user {
+            background: #4fc3f7;
+            color: #1a1a2e;
+            margin-left: auto;
+        }
+
+        .messages {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .score-box {
+            background: #1e3a5f;
+            padding: 15px;
+            border-radius: 10px;
+            white-space: pre-line;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .section-title {
+            color: #4fc3f7;
+            margin: 20px 0 10px;
+            font-size: 1rem;
+        }
+
+        .empty {
+            text-align: center;
+            color: #9ca3af;
+            padding: 40px;
+        }
+
+        @supports (padding-top: env(safe-area-inset-top)) {
+            body {
+                padding-top: calc(20px + env(safe-area-inset-top));
+                padding-bottom: calc(20px + env(safe-area-inset-bottom));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="/" class="back-btn">Back</a>
+            <h1>Interview History</h1>
+        </header>
+
+        <div id="list-view" class="session-list"></div>
+
+        <div id="detail-view" class="session-detail">
+            <button class="back-btn" onclick="showList()" style="position: static; margin-bottom: 20px;">Back to List</button>
+            <div id="detail-content"></div>
+        </div>
+    </div>
+
+    <script>
+        async function loadHistory() {
+            try {
+                const res = await fetch('/api/history');
+                const data = await res.json();
+
+                const listView = document.getElementById('list-view');
+
+                if (data.sessions.length === 0) {
+                    listView.innerHTML = '<div class="empty">No interview history yet.<br>Complete an interview to see it here.</div>';
+                    return;
+                }
+
+                listView.innerHTML = data.sessions.map(s => {
+                    const date = new Date(s.timestamp);
+                    const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                    return `
+                        <div class="session-item-wrapper">
+                            <div class="delete-bg">Delete</div>
+                            <div class="session-item" data-filename="${s.filename}" onclick="loadDetail('${s.filename}')">
+                                <div class="session-date">${dateStr}</div>
+                                <div class="session-info">
+                                    ${s.message_count} messages
+                                    ${s.has_score ? '• Scored' : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                // Setup swipe handlers
+                setupSwipeHandlers();
+            } catch (e) {
+                console.error('Error loading history:', e);
+            }
+        }
+
+        async function loadDetail(filename) {
+            try {
+                const res = await fetch(`/api/history/${filename}`);
+                const data = await res.json();
+
+                const content = document.getElementById('detail-content');
+
+                let html = '<h3 class="section-title">Conversation</h3><div class="messages">';
+                for (const msg of data.messages) {
+                    const role = msg.role === 'assistant' ? 'Kuroko' : 'You';
+                    html += `<div class="message ${msg.role}"><strong>${role}:</strong> ${msg.content}</div>`;
+                }
+                html += '</div>';
+
+                if (data.score) {
+                    html += '<h3 class="section-title">Score</h3>';
+                    html += `<div class="score-box">${data.score}</div>`;
+                }
+
+                content.innerHTML = html;
+
+                document.getElementById('list-view').style.display = 'none';
+                document.getElementById('detail-view').classList.add('active');
+            } catch (e) {
+                console.error('Error loading detail:', e);
+            }
+        }
+
+        function showList() {
+            document.getElementById('list-view').style.display = 'block';
+            document.getElementById('detail-view').classList.remove('active');
+        }
+
+        function setupSwipeHandlers() {
+            document.querySelectorAll('.session-item').forEach(item => {
+                let startX = 0;
+                let currentX = 0;
+                let isSwiping = false;
+
+                item.addEventListener('touchstart', (e) => {
+                    startX = e.touches[0].clientX;
+                    currentX = 0;
+                    isSwiping = true;
+                    item.classList.add('swiping');
+                }, { passive: true });
+
+                item.addEventListener('touchmove', (e) => {
+                    if (!isSwiping) return;
+                    currentX = e.touches[0].clientX - startX;
+                    if (currentX < 0) {
+                        item.style.transform = `translateX(${Math.max(currentX, -80)}px)`;
+                    }
+                }, { passive: true });
+
+                item.addEventListener('touchend', async () => {
+                    item.classList.remove('swiping');
+                    if (currentX < -60) {
+                        // Delete
+                        const filename = item.dataset.filename;
+                        item.style.transform = 'translateX(-100%)';
+                        try {
+                            await fetch(`/api/history/${filename}`, { method: 'DELETE' });
+                            setTimeout(() => {
+                                item.parentElement.remove();
+                            }, 200);
+                        } catch (e) {
+                            item.style.transform = 'translateX(0)';
+                        }
+                    } else {
+                        item.style.transform = 'translateX(0)';
+                    }
+                    isSwiping = false;
+                });
+            });
+        }
+
+        loadHistory();
+    </script>
+</body>
+</html>

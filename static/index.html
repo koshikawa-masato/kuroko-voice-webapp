@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Kuroko Interview</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 0;
+            position: relative;
+        }
+
+        .header-btn {
+            position: absolute;
+            top: 20px;
+            background: transparent;
+            border: 1px solid #4fc3f7;
+            color: #4fc3f7;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+
+        .header-btn:active {
+            background: #4fc3f7;
+            color: #1a1a2e;
+        }
+
+        .header-btn.left {
+            left: 0;
+        }
+
+        .header-btn.left.hidden {
+            transform: translateX(-100px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .header-btn.right {
+            right: 0;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #4fc3f7;
+        }
+
+        header p {
+            font-size: 0.9rem;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 15px;
+            max-width: 85%;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.kuroko {
+            background: #2d3748;
+            align-self: flex-start;
+            border-bottom-left-radius: 5px;
+        }
+
+        .message.user {
+            background: #4fc3f7;
+            color: #1a1a2e;
+            align-self: flex-end;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message.system {
+            background: #374151;
+            align-self: center;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #9ca3af;
+        }
+
+        .message.score {
+            background: #1e3a5f;
+            align-self: center;
+            white-space: pre-line;
+            font-family: monospace;
+            font-size: 0.85rem;
+            width: 100%;
+        }
+
+        .controls {
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 18px 30px;
+            border: none;
+            border-radius: 30px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background: #4fc3f7;
+            color: #1a1a2e;
+        }
+
+        .btn-primary:hover {
+            background: #29b6f6;
+        }
+
+        .btn-record {
+            background: #ef4444;
+            color: white;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            margin: 0 auto;
+            font-size: 2rem;
+        }
+
+        .btn-record.recording {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .btn-stop {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-group .btn {
+            flex: 1;
+        }
+
+        .status {
+            text-align: center;
+            color: #9ca3af;
+            font-size: 0.9rem;
+            min-height: 24px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #4fc3f7;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* iPhone notch safe area */
+        @supports (padding-top: env(safe-area-inset-top)) {
+            .container {
+                padding-top: calc(20px + env(safe-area-inset-top));
+                padding-bottom: calc(20px + env(safe-area-inset-bottom));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="/static/history.html" class="header-btn left" id="historyBtn">History</a>
+            <button class="header-btn right" onclick="location.reload()">Rerun</button>
+            <h1>Kuroko Interview</h1>
+            <p>English Interview Practice</p>
+        </header>
+
+        <div class="chat-container" id="chat"></div>
+        <audio id="audioPlayer" playsinline></audio>
+
+        <div class="controls" id="controls-start">
+            <button class="btn btn-primary" onclick="startInterview()">
+                Start Interview
+            </button>
+        </div>
+
+        <div class="controls hidden" id="controls-interview">
+            <p class="status" id="status">Tap to speak</p>
+            <button class="btn btn-record" id="recordBtn" onclick="toggleRecording()">
+                🎤
+            </button>
+            <div class="btn-group">
+                <button class="btn btn-stop" onclick="endInterview()">
+                    End & Score
+                </button>
+            </div>
+        </div>
+
+        <div class="controls hidden" id="controls-end">
+            <button class="btn btn-primary" onclick="resetInterview()">
+                New Interview
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const sessionId = 'session_' + Date.now();
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+
+        function addMessage(text, type) {
+            const chat = document.getElementById('chat');
+            const msg = document.createElement('div');
+            msg.className = `message ${type}`;
+            msg.textContent = text;
+            chat.appendChild(msg);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function setStatus(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        function showControls(id) {
+            document.querySelectorAll('.controls').forEach(c => c.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        // Use DOM audio element for iOS compatibility
+        const audioElement = document.getElementById('audioPlayer');
+
+        async function playAudio(text) {
+            try {
+                setStatus('Speaking...');
+
+                const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`, {
+                    method: 'POST'
+                });
+                const blob = await res.blob();
+                audioElement.src = URL.createObjectURL(blob);
+                audioElement.load();
+                await audioElement.play();
+
+                await new Promise(resolve => {
+                    audioElement.onended = resolve;
+                });
+
+                setStatus('Tap to speak');
+            } catch (e) {
+                console.error('TTS error:', e);
+                setStatus('Tap to speak');
+            }
+        }
+
+        async function startInterview() {
+            // Play silent audio to unlock audio context on iOS
+            audioElement.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+xBkAA/wAABpAAAACAAANIAAAAEAAAGkAAAAIAAANIAAAARMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sQZB4P8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=';
+            try { await audioElement.play(); } catch(e) {}
+
+            addMessage('Starting interview...', 'system');
+            showControls('controls-interview');
+
+            try {
+                const response = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+                const data = await response.json();
+                addMessage(data.question, 'kuroko');
+                await playAudio(data.question);
+            } catch (e) {
+                addMessage('Error starting interview: ' + e.message, 'system');
+            }
+        }
+
+        async function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    await processAudio(audioBlob);
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('recordBtn').classList.add('recording');
+                document.getElementById('recordBtn').textContent = '⏹';
+                setStatus('Recording... Tap to stop');
+            } catch (e) {
+                console.error('Recording error:', e);
+                setStatus('Microphone access denied');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                document.getElementById('recordBtn').classList.remove('recording');
+                document.getElementById('recordBtn').textContent = '🎤';
+                setStatus('Processing...');
+            }
+        }
+
+        async function processAudio(audioBlob) {
+            try {
+                // STT
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'audio.webm');
+
+                const sttResponse = await fetch('/api/stt', {
+                    method: 'POST',
+                    body: formData
+                });
+                const sttData = await sttResponse.json();
+
+                if (!sttData.text || !sttData.text.trim()) {
+                    setStatus('No speech detected. Tap to try again');
+                    return;
+                }
+
+                addMessage(sttData.text, 'user');
+
+                // Chat
+                setStatus('Thinking...');
+                const chatResponse = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        text: sttData.text
+                    })
+                });
+                const chatData = await chatResponse.json();
+
+                if (chatData.action === 'stop') {
+                    await endInterview();
+                    return;
+                }
+
+                addMessage(chatData.response, 'kuroko');
+                await playAudio(chatData.response);
+
+            } catch (e) {
+                console.error('Processing error:', e);
+                setStatus('Error: ' + e.message);
+            }
+        }
+
+        async function endInterview() {
+            setStatus('Calculating score...');
+
+            try {
+                const response = await fetch('/api/score', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+                const data = await response.json();
+
+                addMessage(data.score, 'score');
+                showControls('controls-end');
+                setStatus('');
+            } catch (e) {
+                addMessage('Error calculating score: ' + e.message, 'system');
+            }
+        }
+
+        function resetInterview() {
+            document.getElementById('chat').innerHTML = '';
+            showControls('controls-start');
+            // Generate new session ID
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>
