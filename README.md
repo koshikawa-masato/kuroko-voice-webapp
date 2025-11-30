@@ -13,6 +13,15 @@ English interview practice web app with FAANG-level selection.
 
 *Left: Select your target level (L4/L5/L6) | Right: AI interviewer asks personalized questions based on your GitHub projects*
 
+## Core Technologies
+
+| Technology | Purpose | Implementation |
+|------------|---------|----------------|
+| **LLM** | AI Interviewer | Claude API (Anthropic) - context-aware follow-up questions |
+| **RAG** | Personalization | FAISS + OpenAI Embeddings - questions from YOUR projects |
+| **STT** | Voice Input | OpenAI Whisper - speech to text |
+| **TTS** | Voice Output | ElevenLabs - natural voice responses |
+
 ## Features
 
 - **FAANG Level Selection** - Practice for L4 (Mid), L5 (Senior), or L6+ (Staff) interviews
