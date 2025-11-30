@@ -109,6 +109,83 @@ ENCRYPTION_KEY=...  # Generate with: python encryption.py
 4. Click "Generate RAG"
 5. Questions will now reference your actual projects
 
+## How RAG Works
+
+This app uses RAG (Retrieval-Augmented Generation) to personalize interview questions based on your actual projects.
+
+### The Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. INDEX GENERATION (one-time setup)                            │
+│                                                                 │
+│   GitHub API          Clone Repos         Chunk & Embed         │
+│   ┌─────────┐        ┌─────────┐         ┌─────────┐           │
+│   │ List    │───────▶│ Clone   │────────▶│ .md     │           │
+│   │ repos   │        │ (depth 1)│         │ files   │           │
+│   └─────────┘        └─────────┘         └────┬────┘           │
+│                                               │                 │
+│                                               ▼                 │
+│                                          ┌─────────┐           │
+│                                          │ OpenAI  │           │
+│                                          │Embedding│           │
+│                                          └────┬────┘           │
+│                                               │                 │
+│                                               ▼                 │
+│                                          ┌─────────┐           │
+│                                          │ FAISS   │           │
+│                                          │ Index   │           │
+│                                          └─────────┘           │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. INTERVIEW (every question)                                   │
+│                                                                 │
+│   Query: "technical projects AI LLM"                            │
+│                      │                                          │
+│                      ▼                                          │
+│                 ┌─────────┐                                     │
+│                 │ FAISS   │──▶ Top 10 relevant chunks           │
+│                 │ Search  │                                     │
+│                 └─────────┘                                     │
+│                      │                                          │
+│                      ▼                                          │
+│   ┌─────────────────────────────────────────────────────┐      │
+│   │ Claude System Prompt                                 │      │
+│   │                                                      │      │
+│   │ "You are interviewing for L5 Senior Engineer..."    │      │
+│   │                                                      │      │
+│   │ CANDIDATE'S BACKGROUND:                              │      │
+│   │ [Source: AI-Vtuber-Project/README.md]               │      │
+│   │ "Three-sister debate system using multi-agent..."   │      │
+│   │                                                      │      │
+│   │ [Source: Sisters-On-WhatsApp/README.md]             │      │
+│   │ "WhatsApp bot with Claude API integration..."       │      │
+│   └─────────────────────────────────────────────────────┘      │
+│                      │                                          │
+│                      ▼                                          │
+│   Personalized Question:                                        │
+│   "I see you've built an AI VTuber system with multi-agent     │
+│    discussions. What was the biggest technical challenge?"      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Works
+
+| Without RAG | With RAG |
+|-------------|----------|
+| "Tell me about your experience with Python" | "I see you built a multi-agent debate system. How did you handle state management between the three sisters?" |
+| Generic questions | Questions about YOUR actual projects |
+| Feels like talking to a script | Feels like talking to someone who read your resume |
+
+### Technical Details
+
+- **Embedding Model:** `text-embedding-3-small` (OpenAI)
+- **Vector Store:** FAISS (Facebook AI Similarity Search)
+- **Chunk Size:** 500 tokens with 50 token overlap
+- **Index Sources:** `.md` files from public GitHub repos
+- **Limits:** Max 10 repos, 5000 chunks total, 2000 chunks per repo
+
 ## Limits
 
 - **Guest Mode:** 5 turns per session
