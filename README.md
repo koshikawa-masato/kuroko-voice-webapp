@@ -7,11 +7,12 @@ English interview practice web app with FAANG-level selection.
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/level-selection.png" width="280" alt="Level Selection">
-  <img src="screenshots/interview-session.png" width="280" alt="Interview Session">
+  <img src="screenshots/level-selection.png" width="250" alt="Level Selection">
+  <img src="screenshots/interview-session.png" width="250" alt="Interview Session">
+  <img src="screenshots/settings-rag.png" width="250" alt="Settings & RAG">
 </p>
 
-*Left: Select your target level (L4/L5/L6) | Right: AI interviewer asks personalized questions based on your GitHub projects*
+*Left: Select your target level (L4/L5/L6) | Center: AI asks personalized questions | Right: Connect GitHub for RAG*
 
 ## Core Technologies
 
