@@ -4,6 +4,15 @@ English interview practice web app with FAANG-level selection.
 
 **Live Demo:** https://kuroko.three-sisters.ai
 
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/level-selection.png" width="280" alt="Level Selection">
+  <img src="screenshots/interview-session.png" width="280" alt="Interview Session">
+</p>
+
+*Left: Select your target level (L4/L5/L6) | Right: AI interviewer asks personalized questions based on your GitHub projects*
+
 ## Features
 
 - **FAANG Level Selection** - Practice for L4 (Mid), L5 (Senior), or L6+ (Staff) interviews
