@@ -269,6 +269,77 @@
             line-height: 1.4;
         }
 
+        /* Mode selection */
+        .mode-select {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .mode-option {
+            flex: 1;
+            background: #2d3748;
+            border: 2px solid #4a5568;
+            border-radius: 12px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .mode-option:hover {
+            border-color: #4fc3f7;
+        }
+
+        .mode-option.selected {
+            border-color: #4fc3f7;
+            background: #1e3a5f;
+        }
+
+        .mode-option.expert {
+            border-color: #4a5568;
+        }
+
+        .mode-option.expert.selected {
+            border-color: #ef4444;
+            background: #3b1219;
+        }
+
+        .mode-option.expert:hover {
+            border-color: #ef4444;
+        }
+
+        .mode-option .mode-icon {
+            font-size: 1.5rem;
+            margin-bottom: 5px;
+        }
+
+        .mode-option .mode-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .mode-option .mode-desc {
+            font-size: 0.7rem;
+            color: #9ca3af;
+            margin-top: 3px;
+        }
+
+        .mode-option.expert .mode-desc {
+            color: #f87171;
+        }
+
+        .expert-warning {
+            background: #3b1219;
+            border: 1px solid #ef4444;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 0.8rem;
+            color: #fca5a5;
+            text-align: center;
+        }
+
         /* Loading spinner */
         .spinner {
             width: 24px;
@@ -305,6 +376,21 @@
         <audio id="audioPlayer" playsinline></audio>
 
         <div class="controls" id="controls-start">
+            <div class="mode-select">
+                <div class="mode-option selected" data-mode="standard" onclick="selectMode(this)">
+                    <div class="mode-icon">🎯</div>
+                    <div class="mode-title">Standard</div>
+                    <div class="mode-desc">FAANG-style practice</div>
+                </div>
+                <div class="mode-option expert" data-mode="expert" onclick="selectMode(this)">
+                    <div class="mode-icon">💀</div>
+                    <div class="mode-title">Expert</div>
+                    <div class="mode-desc">Try Yourself Mode</div>
+                </div>
+            </div>
+            <div class="expert-warning hidden" id="expertWarning">
+                Kuroko will read ALL your commits, docs, and past decisions. No mercy. No escape.
+            </div>
             <div class="level-select">
                 <div class="level-option selected" data-level="L4" onclick="selectLevel(this)">
                     <div class="level-header">
@@ -361,6 +447,21 @@
         let mediaRecorder = null;
         let audioChunks = [];
         let selectedLevel = 'L4';
+        let selectedMode = 'standard';
+
+        function selectMode(element) {
+            document.querySelectorAll('.mode-option').forEach(opt => opt.classList.remove('selected'));
+            element.classList.add('selected');
+            selectedMode = element.dataset.mode;
+
+            // Show/hide expert warning
+            const warning = document.getElementById('expertWarning');
+            if (selectedMode === 'expert') {
+                warning.classList.remove('hidden');
+            } else {
+                warning.classList.add('hidden');
+            }
+        }
 
         function selectLevel(element) {
             document.querySelectorAll('.level-option').forEach(opt => opt.classList.remove('selected'));
@@ -436,13 +537,22 @@
                 const response = await fetch('/api/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId, level: selectedLevel })
+                    body: JSON.stringify({ session_id: sessionId, level: selectedLevel, mode: selectedMode })
                 });
                 const data = await response.json();
+
+                if (!response.ok) {
+                    // Handle Expert Mode errors
+                    addMessage(data.detail || 'Failed to start interview', 'system');
+                    showControls('controls-start');
+                    return;
+                }
+
                 addMessage(data.question, 'kuroko');
                 await playAudio(data.question);
             } catch (e) {
                 addMessage('Error starting interview: ' + e.message, 'system');
+                showControls('controls-start');
             }
         }
 

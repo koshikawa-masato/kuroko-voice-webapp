@@ -81,6 +81,123 @@ class RAGEngine:
 
         return chunks
 
+    def _chunk_markdown_by_headings(self, text: str, source: str) -> List[Dict]:
+        """Split markdown by h2/h3 headings for better context preservation.
+
+        Returns list of dicts with 'content' and 'heading' keys.
+        This preserves the section context for each chunk.
+        """
+        import re
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+
+        # Split by h2 (##) and h3 (###) headings
+        heading_pattern = re.compile(r'^(#{2,3})\s+(.+)$', re.MULTILINE)
+
+        sections = []
+        last_end = 0
+        current_heading = "Introduction"
+
+        for match in heading_pattern.finditer(text):
+            # Get content before this heading
+            if match.start() > last_end:
+                content = text[last_end:match.start()].strip()
+                if content:
+                    sections.append({
+                        'heading': current_heading,
+                        'content': content
+                    })
+
+            current_heading = match.group(2).strip()
+            last_end = match.end()
+
+        # Don't forget the last section
+        if last_end < len(text):
+            content = text[last_end:].strip()
+            if content:
+                sections.append({
+                    'heading': current_heading,
+                    'content': content
+                })
+
+        # Further chunk large sections while preserving heading context
+        chunks = []
+        max_tokens = 500
+
+        for section in sections:
+            tokens = enc.encode(section['content'])
+            if len(tokens) <= max_tokens:
+                chunks.append({
+                    'heading': section['heading'],
+                    'content': section['content']
+                })
+            else:
+                # Split large sections into smaller chunks
+                sub_chunks = self._chunk_text(section['content'], chunk_size=max_tokens, overlap=50)
+                for i, chunk in enumerate(sub_chunks):
+                    heading = section['heading']
+                    if len(sub_chunks) > 1:
+                        heading = f"{section['heading']} (part {i + 1})"
+                    chunks.append({
+                        'heading': heading,
+                        'content': chunk
+                    })
+
+        return chunks
+
+    def _get_commit_messages(self, repo_path: str, max_commits: int = 50) -> List[Dict]:
+        """Extract meaningful commit messages from a git repository.
+
+        Only returns commits with substantial messages (>50 chars) as these
+        are more likely to contain thoughtful decisions.
+        """
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ['git', 'log', f'--max-count={max_commits * 2}',
+                 '--format=%H|%an|%s|%b', '--no-merges'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                return []
+
+            commits = []
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+
+                parts = line.split('|', 3)
+                if len(parts) < 3:
+                    continue
+
+                sha, author, subject = parts[0], parts[1], parts[2]
+                body = parts[3] if len(parts) > 3 else ""
+
+                # Full message
+                full_message = f"{subject}\n{body}".strip()
+
+                # Only keep substantial commits (>50 chars = thoughtful messages)
+                if len(full_message) > 50:
+                    commits.append({
+                        'sha': sha[:7],
+                        'author': author,
+                        'message': full_message
+                    })
+
+                if len(commits) >= max_commits:
+                    break
+
+            return commits
+
+        except Exception as e:
+            print(f"  Error reading commits: {e}")
+            return []
+
     @property
     def available(self) -> bool:
         if self._available is None:
@@ -209,6 +326,181 @@ class RAGEngine:
         self.index.add(embeddings_array)
 
         print(f"\nIndexed {len(self.documents)} chunks from {len(set(d.source for d in self.documents))} files")
+
+        # Save index
+        self._save_index()
+
+    def index_directory_expert(self, directory: str, extensions: List[str] = None,
+                                max_documents: int = None, max_per_source: int = None):
+        """Index directory with Expert Mode features:
+        - Heading-based chunking for better context
+        - Commit message extraction
+        - Enhanced metadata
+
+        Args:
+            directory: Path to directory
+            extensions: File extensions to include (default: .md)
+            max_documents: Maximum total document chunks
+            max_per_source: Maximum chunks per source/repo directory
+        """
+        if not self.available:
+            return
+
+        import faiss
+        import numpy as np
+
+        if extensions is None:
+            extensions = ['.md']
+
+        print(f"[Expert Mode] Indexing {directory}...")
+        print(f"Extensions: {extensions}")
+
+        self.documents = []
+        all_chunks = []
+        source_counts = {}
+
+        dir_path = Path(directory)
+
+        # First pass: Index markdown files with heading-based chunking
+        for file_path in dir_path.rglob('*'):
+            if max_documents and len(all_chunks) >= max_documents:
+                print(f"  Reached max documents limit ({max_documents})")
+                break
+
+            if file_path.is_file() and file_path.suffix in extensions:
+                if any(part.startswith('.') for part in file_path.parts):
+                    continue
+                if any(part in ['node_modules', 'venv', '__pycache__', 'dist', 'build']
+                       for part in file_path.parts):
+                    continue
+
+                relative_path = str(file_path.relative_to(dir_path))
+                source_name = relative_path.split('/')[0] if '/' in relative_path else 'root'
+
+                if max_per_source and source_counts.get(source_name, 0) >= max_per_source:
+                    continue
+
+                try:
+                    content = file_path.read_text(encoding='utf-8', errors='ignore')
+                    if not content.strip():
+                        continue
+
+                    # Use heading-based chunking for markdown
+                    if file_path.suffix == '.md':
+                        heading_chunks = self._chunk_markdown_by_headings(content, relative_path)
+                    else:
+                        # Fallback for non-md files
+                        text_chunks = self._chunk_text(content)
+                        heading_chunks = [{'heading': 'Content', 'content': c} for c in text_chunks]
+
+                    chunks_to_add = heading_chunks
+                    if max_per_source:
+                        remaining = max_per_source - source_counts.get(source_name, 0)
+                        chunks_to_add = chunks_to_add[:remaining]
+                    if max_documents:
+                        remaining = max_documents - len(all_chunks)
+                        chunks_to_add = chunks_to_add[:remaining]
+
+                    for i, chunk_data in enumerate(chunks_to_add):
+                        # Enhanced content with heading context
+                        enhanced_content = f"[{chunk_data['heading']}]\n{chunk_data['content']}"
+
+                        doc = Document(
+                            content=enhanced_content,
+                            source=relative_path,
+                            chunk_id=i,
+                            metadata={
+                                'full_path': str(file_path),
+                                'repo': source_name,
+                                'heading': chunk_data['heading'],
+                                'type': 'documentation'
+                            }
+                        )
+                        self.documents.append(doc)
+                        all_chunks.append(enhanced_content)
+                        source_counts[source_name] = source_counts.get(source_name, 0) + 1
+
+                    print(f"  [Doc] {file_path.name} ({len(chunks_to_add)} sections)")
+
+                except Exception as e:
+                    print(f"  Skip {file_path.name}: {e}")
+
+        # Second pass: Extract commit messages from repos
+        print("\n[Expert Mode] Extracting commit messages...")
+        for repo_dir in dir_path.iterdir():
+            if not repo_dir.is_dir():
+                continue
+            if repo_dir.name.startswith('.'):
+                continue
+
+            git_dir = repo_dir / '.git'
+            if not git_dir.exists():
+                continue
+
+            if max_documents and len(all_chunks) >= max_documents:
+                break
+
+            commits = self._get_commit_messages(str(repo_dir), max_commits=30)
+
+            if commits:
+                repo_name = repo_dir.name
+
+                if max_per_source:
+                    remaining = max_per_source - source_counts.get(repo_name, 0)
+                    commits = commits[:remaining]
+                if max_documents:
+                    remaining = max_documents - len(all_chunks)
+                    commits = commits[:remaining]
+
+                for i, commit in enumerate(commits):
+                    commit_content = f"[Commit {commit['sha']} by {commit['author']}]\n{commit['message']}"
+
+                    doc = Document(
+                        content=commit_content,
+                        source=f"{repo_name}/commits",
+                        chunk_id=i,
+                        metadata={
+                            'repo': repo_name,
+                            'sha': commit['sha'],
+                            'author': commit['author'],
+                            'type': 'commit'
+                        }
+                    )
+                    self.documents.append(doc)
+                    all_chunks.append(commit_content)
+                    source_counts[repo_name] = source_counts.get(repo_name, 0) + 1
+
+                print(f"  [Commits] {repo_name}: {len(commits)} meaningful commits")
+
+        if not all_chunks:
+            print("No documents found")
+            return
+
+        # Batch embed all chunks
+        print(f"\nEmbedding {len(all_chunks)} chunks in batches...")
+        all_embeddings = []
+        batch_size = 100
+
+        for i in range(0, len(all_chunks), batch_size):
+            batch = all_chunks[i:i + batch_size]
+            embeddings = self._get_embeddings_batch(batch)
+            all_embeddings.extend(embeddings)
+            print(f"  Batch {i // batch_size + 1}/{(len(all_chunks) - 1) // batch_size + 1} done")
+
+        # Build FAISS index
+        embeddings_array = np.array(all_embeddings, dtype='float32')
+        dimension = embeddings_array.shape[1]
+
+        self.index = faiss.IndexFlatL2(dimension)
+        self.index.add(embeddings_array)
+
+        # Count types
+        doc_count = len([d for d in self.documents if d.metadata.get('type') == 'documentation'])
+        commit_count = len([d for d in self.documents if d.metadata.get('type') == 'commit'])
+
+        print(f"\n[Expert Mode] Indexed {len(self.documents)} total chunks:")
+        print(f"  - {doc_count} documentation sections")
+        print(f"  - {commit_count} commit messages")
 
         # Save index
         self._save_index()

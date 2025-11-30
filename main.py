@@ -180,6 +180,7 @@ class ChatRequest(BaseModel):
 class StartRequest(BaseModel):
     session_id: str
     level: str = "L4"  # L4, L5, L6
+    mode: str = "standard"  # standard, expert
 
 
 class ScoreRequest(BaseModel):
@@ -302,6 +303,49 @@ If answer is too short, say: Please tell me more.
 """
 
 
+def get_expert_interviewer_prompt(level: str = "L6", context: str = "") -> str:
+    """Get the merciless Expert Mode interviewer prompt."""
+    level_info = get_level_expectations(level)
+
+    context_section = ""
+    if context:
+        context_section = f"""
+CANDIDATE'S DOCUMENTED DECISIONS & HISTORY:
+{context}
+
+You have READ EVERYTHING. Every commit message, every design decision, every README.
+Use this knowledge to ask questions they CANNOT escape from.
+"""
+
+    return f"""You are a Principal Engineer at FAANG conducting a BRUTAL technical interview.
+You are interviewing for: {level_info["title"]} ({level_info["years"]} experience)
+{context_section}
+YOUR INTERVIEWING STYLE:
+- You are MERCILESS. No softball questions.
+- You have READ ALL their commits, docs, and past decisions
+- Point out CONTRADICTIONS between what they wrote and what they claim
+- Ask about their ACTUAL past mistakes (you can see them in their history)
+- Challenge every "we decided" with "WHY did you decide that?"
+- If they say "best practice", demand they explain WHY it's best
+- Call out hand-wavy answers immediately
+
+EXPERT MODE RULES:
+- No encouragement. No "good answer".
+- If they dodge a question, call it out: "You didn't answer my question."
+- If their answer is shallow: "That's surface-level. Go deeper."
+- If they contradict their own docs: "But your README says X. Which is it?"
+- Push until they reach the edge of their knowledge
+
+FORMAT:
+- 2-3 sentences max
+- No markdown, no asterisks
+- Plain text only
+- Be direct, even blunt
+
+Remember: This is Expert Mode. They ASKED for no mercy. Give them none.
+"""
+
+
 @app.post("/api/start")
 async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)):
     """Start a new interview session"""
@@ -309,21 +353,38 @@ async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)
         client = get_anthropic_client()
         username = get_user_from_token(token) if token else None
 
-        # Validate level
+        # Validate level and mode
         level = req.level if req.level in ["L4", "L5", "L6"] else "L4"
+        mode = req.mode if req.mode in ["standard", "expert"] else "standard"
         level_info = get_level_expectations(level)
+
+        # Expert mode requires login and RAG
+        if mode == "expert" and not username:
+            raise HTTPException(status_code=401, detail="Expert mode requires login")
 
         # Get RAG context about the candidate (user-specific or none for guests)
         context = ""
         if username:
             rag = get_rag_engine(username)
             if rag and rag.index is not None:
-                context = rag.get_context("technical projects AI LLM Python development experience", max_tokens=1500)
+                # Expert mode gets more context
+                max_tokens = 3000 if mode == "expert" else 1500
+                context = rag.get_context("technical projects AI LLM Python development experience decisions architecture", max_tokens=max_tokens)
 
-        system_prompt = get_interviewer_prompt(level=level, context=context)
+        # Expert mode requires RAG
+        if mode == "expert" and not context:
+            raise HTTPException(status_code=400, detail="Expert mode requires RAG index. Generate it in Settings first.")
 
-        # Different first message based on level and whether we have RAG context
-        if context:
+        # Choose prompt based on mode
+        if mode == "expert":
+            system_prompt = get_expert_interviewer_prompt(level=level, context=context)
+        else:
+            system_prompt = get_interviewer_prompt(level=level, context=context)
+
+        # Different first message based on mode
+        if mode == "expert":
+            first_message = f"You have read all their commits and documentation. Start with a pointed question about a specific decision or contradiction you noticed in their work. Be direct. No warmup."
+        elif context:
             first_message = f"Ask one short question about the candidate's background or projects, appropriate for a {level_info['title']} interview."
         else:
             first_message = f"Ask one short technical interview question appropriate for a {level_info['title']} candidate."
@@ -337,15 +398,16 @@ async def start_interview(req: StartRequest, token: Optional[str] = Cookie(None)
 
         first_question = response.content[0].text
 
-        # Store session with username and level
+        # Store session with username, level, and mode
         sessions[req.session_id] = {
             "messages": [{"role": "assistant", "content": first_question}],
             "system_prompt": system_prompt,
             "username": username,
-            "level": level
+            "level": level,
+            "mode": mode
         }
 
-        return {"question": first_question, "level": level}
+        return {"question": first_question, "level": level, "mode": mode}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -650,8 +712,12 @@ async def update_settings(settings: SettingsUpdate, token: Optional[str] = Cooki
 
 
 @app.get("/api/settings/generate-rag")
-async def generate_rag_stream(token: Optional[str] = Cookie(None)):
-    """Generate RAG index from user's GitHub repos with progress streaming"""
+async def generate_rag_stream(token: Optional[str] = Cookie(None), expert: bool = False):
+    """Generate RAG index from user's GitHub repos with progress streaming
+
+    Args:
+        expert: If True, use Expert Mode indexing (full git history, heading-based chunking)
+    """
     import subprocess
     import shutil
     import urllib.request
@@ -668,7 +734,8 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
 
     async def generate():
         try:
-            yield f"data: {json.dumps({'step': 'Fetching repo list...', 'progress': 5})}\n\n"
+            mode_label = "[Expert Mode] " if expert else ""
+            yield f"data: {json.dumps({'step': f'{mode_label}Fetching repo list...', 'progress': 5})}\n\n"
 
             # Create temp dir for cloning
             temp_dir = Path(tempfile.mkdtemp())
@@ -688,24 +755,34 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
             repos = all_repos[:RAG_MAX_REPOS]
 
             if len(all_repos) > RAG_MAX_REPOS:
-                yield f"data: {json.dumps({'step': f'Found {len(all_repos)} repos, limiting to {RAG_MAX_REPOS}', 'progress': 10})}\n\n"
+                yield f"data: {json.dumps({'step': f'{mode_label}Found {len(all_repos)} repos, limiting to {RAG_MAX_REPOS}', 'progress': 10})}\n\n"
             else:
-                yield f"data: {json.dumps({'step': f'Found {len(repos)} repos', 'progress': 10})}\n\n"
+                yield f"data: {json.dumps({'step': f'{mode_label}Found {len(repos)} repos', 'progress': 10})}\n\n"
 
             # Clone repos using git
+            # Expert mode: full clone for commit history
+            # Standard mode: shallow clone for speed
             total_repos = len(repos)
             for i, repo in enumerate(repos):
                 repo_name = repo["name"]
                 clone_url = repo["clone_url"]
                 progress = 10 + int((i / total_repos) * 50)
-                yield f"data: {json.dumps({'step': f'Cloning {repo_name}...', 'progress': progress})}\n\n"
+                yield f"data: {json.dumps({'step': f'{mode_label}Cloning {repo_name}...', 'progress': progress})}\n\n"
 
-                subprocess.run(
-                    ["/usr/bin/git", "clone", "--depth", "1", clone_url],
-                    cwd=temp_dir, capture_output=True
-                )
+                if expert:
+                    # Full clone to get commit history
+                    subprocess.run(
+                        ["/usr/bin/git", "clone", clone_url],
+                        cwd=temp_dir, capture_output=True
+                    )
+                else:
+                    # Shallow clone for speed
+                    subprocess.run(
+                        ["/usr/bin/git", "clone", "--depth", "1", clone_url],
+                        cwd=temp_dir, capture_output=True
+                    )
 
-            yield f"data: {json.dumps({'step': 'Building RAG index...', 'progress': 65})}\n\n"
+            yield f"data: {json.dumps({'step': f'{mode_label}Building RAG index...', 'progress': 65})}\n\n"
 
             # Generate RAG index with limits
             from rag import RAGEngine
@@ -715,17 +792,26 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
             rag = RAGEngine(index_name=f"user_{username}")
             rag.index_path = user_rag_dir
 
-            yield f"data: {json.dumps({'step': 'Indexing .md files...', 'progress': 75})}\n\n"
+            if expert:
+                yield f"data: {json.dumps({'step': f'{mode_label}Indexing docs & commits...', 'progress': 75})}\n\n"
+                # Expert mode: heading-based chunking + commit messages
+                rag.index_directory_expert(
+                    str(temp_dir),
+                    extensions=[".md"],
+                    max_documents=RAG_MAX_DOCUMENTS,
+                    max_per_source=RAG_MAX_PER_REPO
+                )
+            else:
+                yield f"data: {json.dumps({'step': 'Indexing .md files...', 'progress': 75})}\n\n"
+                # Standard mode
+                rag.index_directory(
+                    str(temp_dir),
+                    extensions=[".md"],
+                    max_documents=RAG_MAX_DOCUMENTS,
+                    max_per_source=RAG_MAX_PER_REPO
+                )
 
-            # Index with document limits
-            rag.index_directory(
-                str(temp_dir),
-                extensions=[".md"],
-                max_documents=RAG_MAX_DOCUMENTS,
-                max_per_source=RAG_MAX_PER_REPO
-            )
-
-            yield f"data: {json.dumps({'step': 'Saving index...', 'progress': 90})}\n\n"
+            yield f"data: {json.dumps({'step': f'{mode_label}Saving index...', 'progress': 90})}\n\n"
 
             # Cleanup temp dir
             shutil.rmtree(temp_dir)
@@ -734,7 +820,7 @@ async def generate_rag_stream(token: Optional[str] = Cookie(None)):
             rag_engines[username] = rag
 
             doc_count = len(rag.documents)
-            msg = f'Done! {doc_count} chunks indexed'
+            msg = f'{mode_label}Done! {doc_count} chunks indexed'
             if doc_count >= RAG_MAX_DOCUMENTS:
                 msg += f' (limit: {RAG_MAX_DOCUMENTS})'
             yield f"data: {json.dumps({'step': msg, 'progress': 100, 'chunks': doc_count})}\n\n"

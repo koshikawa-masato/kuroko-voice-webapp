@@ -335,8 +335,11 @@
                     <label>GitHub Username</label>
                     <input type="text" id="github-username" placeholder="e.g., koshikawa-masato">
                 </div>
-                <button class="btn btn-primary" id="generate-rag-btn" onclick="generateRag()">
+                <button class="btn btn-primary" id="generate-rag-btn" onclick="generateRag(false)">
                     Generate RAG from Public Repos
+                </button>
+                <button class="btn btn-secondary" id="generate-expert-btn" onclick="generateRag(true)" style="background: #3b1219; border: 1px solid #ef4444; color: #fca5a5; margin-top: 10px;">
+                    Generate Expert Mode RAG (Deep)
                 </button>
                 <div id="progress-container" class="progress-container hidden">
                     <div class="progress-bar">
@@ -346,7 +349,8 @@
                 </div>
                 <div id="rag-message" class="status-message hidden"></div>
                 <p style="color: #6b7280; font-size: 0.8rem; margin-top: 10px;">
-                    This will index .md files from your public GitHub repositories to personalize interview questions.
+                    Standard: Index .md files only (fast).<br>
+                    Expert: Full git history + commits + heading-based indexing (for brutal interviews).
                 </p>
             </div>
         </div>
@@ -485,7 +489,7 @@
             }
         }
 
-        async function generateRag() {
+        async function generateRag(expert = false) {
             const githubUsername = document.getElementById('github-username').value.trim();
 
             if (!githubUsername) {
@@ -494,12 +498,15 @@
             }
 
             const btn = document.getElementById('generate-rag-btn');
+            const expertBtn = document.getElementById('generate-expert-btn');
             const progressContainer = document.getElementById('progress-container');
             const progressFill = document.getElementById('progress-fill');
             const progressText = document.getElementById('progress-text');
 
             btn.disabled = true;
-            btn.textContent = 'Generating...';
+            expertBtn.disabled = true;
+            btn.textContent = expert ? 'Generating...' : 'Generating...';
+            expertBtn.textContent = expert ? 'Generating Expert RAG...' : 'Generate Expert Mode RAG (Deep)';
             progressContainer.classList.remove('hidden');
             progressFill.style.width = '0%';
             document.getElementById('rag-message').classList.add('hidden');
@@ -513,7 +520,8 @@
                 });
 
                 // Then generate RAG with SSE progress
-                const eventSource = new EventSource('/api/settings/generate-rag');
+                const url = expert ? '/api/settings/generate-rag?expert=true' : '/api/settings/generate-rag';
+                const eventSource = new EventSource(url);
 
                 eventSource.onmessage = (event) => {
                     const data = JSON.parse(event.data);
@@ -521,9 +529,7 @@
                     if (data.error) {
                         eventSource.close();
                         showRagMessage(data.error, 'error');
-                        btn.disabled = false;
-                        btn.textContent = 'Generate RAG from Public Repos';
-                        progressContainer.classList.add('hidden');
+                        resetButtons();
                         return;
                     }
 
@@ -535,12 +541,12 @@
                     if (data.chunks !== undefined) {
                         // Done!
                         eventSource.close();
-                        showRagMessage(`RAG generated successfully! ${data.chunks} chunks indexed.`, 'success');
+                        const modeLabel = expert ? 'Expert Mode ' : '';
+                        showRagMessage(`${modeLabel}RAG generated successfully! ${data.chunks} chunks indexed.`, 'success');
                         document.getElementById('rag-indicator').classList.add('active');
                         document.getElementById('rag-indicator').classList.remove('inactive');
-                        document.getElementById('rag-status-text').textContent = 'RAG index active';
-                        btn.disabled = false;
-                        btn.textContent = 'Generate RAG from Public Repos';
+                        document.getElementById('rag-status-text').textContent = expert ? 'Expert RAG active' : 'RAG index active';
+                        resetButtons();
                         setTimeout(() => progressContainer.classList.add('hidden'), 1000);
                     }
                 };
@@ -548,15 +554,19 @@
                 eventSource.onerror = () => {
                     eventSource.close();
                     showRagMessage('Connection error', 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Generate RAG from Public Repos';
-                    progressContainer.classList.add('hidden');
+                    resetButtons();
                 };
 
             } catch (e) {
                 showRagMessage('Connection error: ' + e.message, 'error');
+                resetButtons();
+            }
+
+            function resetButtons() {
                 btn.disabled = false;
+                expertBtn.disabled = false;
                 btn.textContent = 'Generate RAG from Public Repos';
+                expertBtn.textContent = 'Generate Expert Mode RAG (Deep)';
                 progressContainer.classList.add('hidden');
             }
         }
