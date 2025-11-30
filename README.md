@@ -29,7 +29,35 @@ English interview practice web app with FAANG-level selection.
 - **Voice Input/Output** - Speak your answers, hear AI interviewer responses
 - **RAG Integration** - Connect your GitHub to personalize questions based on your projects
 - **Level-Specific Scoring** - Get feedback calibrated to your target level
+- **Expert Mode** - Brutal interview with a merciless Principal Engineer (see below)
 - **PWA Support** - Install on iPhone/Android for native-like experience
+
+## Interview Modes
+
+| Mode | Icon | Description |
+|------|------|-------------|
+| **Standard** | 🎯 | FAANG-style practice with supportive feedback |
+| **Expert** | 💀 | "Try Yourself Mode" - No mercy, no escape |
+
+### Expert Mode
+
+Expert Mode is for those who want to be **truly challenged**. The interviewer becomes a Principal Engineer who:
+
+- Has **read ALL your commits, docs, and past decisions**
+- Points out **contradictions** between what you wrote and what you claim
+- Asks about your **actual past mistakes** (visible in your history)
+- Challenges every "we decided" with **"WHY did you decide that?"**
+- Gives **no encouragement** - calls out shallow answers immediately
+- Pushes until you reach **the edge of your knowledge**
+
+**Requirements:**
+- Must be logged in
+- Must have RAG index generated (Expert Mode RAG recommended)
+
+**Expert Mode RAG** uses:
+- Full git clone (not shallow) to access commit history
+- Heading-based chunking (h2/h3 sections for better context)
+- Commit message extraction (thoughtful commits only, >50 chars)
 
 ## Interview Levels
 
